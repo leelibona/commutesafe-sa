@@ -1,72 +1,301 @@
-﻿import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+﻿import React, { useEffect, useRef, useState } from 'react';
+import {
+  View, Text, Pressable, StyleSheet, Animated, Easing, Platform, ActivityIndicator,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import api from '../api/client';
-import { colors } from '../theme/colors';
+import Screen from '../components/Screen';
+import Icon from '../components/Icon';
+import PrimaryButton from '../components/PrimaryButton';
+import { useToast, friendlyError } from '../components/Toast';
+import { getCurrentPlace, withTimeout } from '../utils/location';
+import { useAuth } from '../context/AuthContext';
+import { useT } from '../i18n/LanguageContext';
+import { callNumber, formatPhone, openSms, openWhatsApp, sosMessage } from '../utils/messaging';
+import { colors, radius, shadows, spacing, type } from '../theme/colors';
 
-export default function SosScreen() {
-  const [loading, setLoading] = useState(false);
+const SERVICES = [
+  { name: 'SAPS', number: '10111', icon: 'shield-outline' },
+  { name: 'Netcare 911', number: '082 911', icon: 'medkit-outline' },
+  { name: 'ER24', number: '084 124', icon: 'pulse-outline' },
+];
 
-  const sendSOS = async () => {
-    setLoading(true);
-    try {
-      let coords = { latitude: null, longitude: null };
-      if (typeof navigator !== 'undefined' && navigator.geolocation) {
-        coords = await new Promise((resolve) => {
-          navigator.geolocation.getCurrentPosition(
-            (p) => resolve({ latitude: p.coords.latitude, longitude: p.coords.longitude }),
-            () => resolve({ latitude: null, longitude: null }),
-            { timeout: 4000 }
-          );
-        });
-      }
-      const { data } = await api.post('/sos', coords);
-      Alert.alert('SOS sent', `Notified: ${data.notified.join(', ')}`);
-    } catch (e) {
-      Alert.alert('SOS failed', e.response?.data?.error || e.message);
-    } finally { setLoading(false); }
-  };
+const BTN = 200;
+const COUNTDOWN = 3;
+
+function PulseRing({ delay, color = colors.danger }) {
+  const v = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(v, {
+          toValue: 1,
+          duration: 2400,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: Platform.OS !== 'web',
+        }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [v, delay]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Emergency Alert</Text>
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        styles.ring,
+        { backgroundColor: color },
+        {
+          opacity: v.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0] }),
+          transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, 1.55] }) }],
+        },
+      ]}
+    />
+  );
+}
 
-      <View style={styles.banner}>
-        <Text style={styles.bannerText}>
-          For genuine emergencies only. False alerts may delay responses to others.
+const call = callNumber;
+
+export default function SosScreen() {
+  const insets = useSafeAreaInsets();
+  const toast = useToast();
+  const t = useT();
+  const { user } = useAuth();
+  // idle → counting → sending → sent
+  const [phase, setPhase] = useState('idle');
+  const [count, setCount] = useState(COUNTDOWN);
+  const [sent, setSent] = useState(null);
+  const timer = useRef(null);
+
+  useEffect(() => () => clearInterval(timer.current), []);
+
+  const startCountdown = () => {
+    setPhase('counting');
+    setCount(COUNTDOWN);
+    let n = COUNTDOWN;
+    timer.current = setInterval(() => {
+      n -= 1;
+      if (n <= 0) {
+        clearInterval(timer.current);
+        sendSOS();
+      } else {
+        setCount(n);
+      }
+    }, 1000);
+  };
+
+  const cancel = () => {
+    clearInterval(timer.current);
+    setPhase('idle');
+    toast.show('SOS cancelled', { type: 'info', message: 'No alert was sent.' });
+  };
+
+  const sendSOS = async () => {
+    setPhase('sending');
+    let coords = { latitude: null, longitude: null };
+    let label = null;
+    try {
+      // Never let a slow GPS delay an emergency alert: give up on location after 5 s
+      const place = await withTimeout(
+        getCurrentPlace({ withAddress: false, timeoutMs: 5000 }), 6000, 'Location timed out'
+      );
+      coords = { latitude: place.latitude, longitude: place.longitude };
+      label = place.label;
+    } catch {
+      // Still send the alert without a location rather than failing
+    }
+    try {
+      const { data } = await api.post('/sos', coords);
+      setSent({ notified: data.notified || [], contacts: data.contacts || [], at: new Date(), label, ...coords });
+      setPhase('sent');
+    } catch (e) {
+      setPhase('idle');
+      toast.show('SOS failed', { type: 'error', message: `${friendlyError(e)} Call 10111 directly.`, duration: 6000 });
+    }
+  };
+
+  const counting = phase === 'counting';
+  const sending = phase === 'sending';
+
+  if (phase === 'sent' && sent) {
+    return (
+      <Screen background="#F4FBF6" contentStyle={{ paddingTop: insets.top + spacing.xl, paddingHorizontal: spacing.xl }}>
+        <View style={styles.sentIcon}><Icon name="checkmark" size={48} color="#fff" /></View>
+        <Text style={[styles.title, { marginTop: spacing.lg }]}>{t('sos.sent')}</Text>
+        <Text style={styles.subtitle}>
+          Sent at {sent.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          {sent.label ? ` from ${sent.label}` : ' (location unavailable)'}.
+          Stay where it's safe and keep your phone on.
         </Text>
+
+        <View style={[styles.sentCard, shadows.sm]}>
+          <Text style={styles.notifyLabelLeft}>NOTIFIED</Text>
+          {sent.notified.map(n => (
+            <View key={n} style={styles.notifiedRow}>
+              <Icon name="checkmark-circle" size={18} color={colors.success} />
+              <Text style={styles.notifiedText}>{n}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={[styles.sentCard, shadows.sm]}>
+          <Text style={styles.notifyLabelLeft}>{t('sos.contacts')}</Text>
+          {sent.contacts.length === 0 ? (
+            <Text style={styles.noContacts}>{t('sos.noContacts')}</Text>
+          ) : sent.contacts.map(c => {
+            const msg = sosMessage(user?.name, sent.latitude, sent.longitude);
+            return (
+              <View key={c.contact_id} style={styles.contactRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.notifiedText}>{c.name}</Text>
+                  <Text style={styles.contactPhone}>{formatPhone(c.phone)}</Text>
+                </View>
+                <Pressable onPress={() => openSms(c.phone, msg)} style={styles.msgBtn} accessibilityLabel={`SMS ${c.name}`}>
+                  <Icon name="chatbubble-outline" size={16} color={colors.primary} />
+                  <Text style={styles.msgText}>SMS</Text>
+                </Pressable>
+                <Pressable onPress={() => openWhatsApp(c.phone, msg)} style={[styles.msgBtn, styles.waBtn]} accessibilityLabel={`WhatsApp ${c.name}`}>
+                  <Icon name="logo-whatsapp" size={16} color="#128C7E" />
+                  <Text style={[styles.msgText, { color: '#128C7E' }]}>WhatsApp</Text>
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
+
+        <PrimaryButton title="Call SAPS 10111" icon="call" danger onPress={() => call('10111')} style={{ marginTop: spacing.xl }} />
+        <PrimaryButton title={t('sos.safe')} variant="secondary" onPress={() => { setPhase('idle'); setSent(null); }} style={{ marginTop: spacing.md }} />
+      </Screen>
+    );
+  }
+
+  return (
+    <Screen background="#FFF8F8" contentStyle={{ paddingTop: insets.top + spacing.xl, paddingHorizontal: spacing.xl }}>
+      <Text style={styles.overline}>{t('sos.overline')}</Text>
+      <Text style={styles.title}>{counting ? t('sos.sending') : t('sos.title')}</Text>
+      <Text style={styles.subtitle}>
+        {counting ? t('sos.cancelHint') : t('sos.subtitle')}
+      </Text>
+
+      <View style={styles.btnArea}>
+        {phase === 'idle' && <PulseRing delay={0} />}
+        {phase === 'idle' && <PulseRing delay={1200} />}
+        <Pressable
+          onPress={phase === 'idle' ? startCountdown : undefined}
+          disabled={phase !== 'idle'}
+          accessibilityRole="button"
+          accessibilityLabel="Send SOS alert"
+          style={({ pressed }) => [styles.sosOuter, shadows.lg, pressed && { transform: [{ scale: 0.96 }] }]}
+        >
+          <View style={styles.sosInner}>
+            {sending ? (
+              <>
+                <ActivityIndicator color="#fff" size="large" />
+                <Text style={styles.sosSending}>Sending…</Text>
+              </>
+            ) : counting ? (
+              <>
+                <Text style={styles.countText}>{count}</Text>
+                <Text style={styles.sosHint}>Sending in {count}s</Text>
+              </>
+            ) : (
+              <>
+                <Text style={styles.sosText}>SOS</Text>
+                <Text style={styles.sosHint}>{t('sos.tap')}</Text>
+              </>
+            )}
+          </View>
+        </Pressable>
       </View>
 
-      <TouchableOpacity style={styles.sosBtn} onPress={sendSOS} disabled={loading} activeOpacity={0.7}>
-        <Text style={styles.sosIcon}>⚠️</Text>
-        <Text style={styles.sosText}>{loading ? '...' : 'SOS'}</Text>
-      </TouchableOpacity>
+      {counting ? (
+        <PrimaryButton title={t('common.cancel')} icon="close" variant="secondary" onPress={cancel} />
+      ) : (
+        <View style={styles.banner}>
+          <Icon name="warning-outline" size={18} color={colors.warningDark} />
+          <Text style={styles.bannerText}>
+            {t('sos.warning')}
+          </Text>
+        </View>
+      )}
 
-      <Text style={styles.hint}>Press to send an alert with your live location</Text>
-
-      <Text style={styles.notifyLabel}>Alert will notify</Text>
+      <Text style={styles.notifyLabel}>{t('sos.willNotify')}</Text>
       <View style={styles.services}>
-        {['SAPS 10111', 'Netcare 911', 'ER24'].map(s => (
-          <View key={s} style={styles.service}><Text>{s}</Text></View>
+        {SERVICES.map(s => (
+          <Pressable
+            key={s.name}
+            onPress={() => call(s.number)}
+            style={({ pressed }) => [styles.service, shadows.sm, pressed && { opacity: 0.8 }]}
+          >
+            <View style={styles.serviceIcon}><Icon name={s.icon} size={20} color={colors.danger} /></View>
+            <Text style={styles.serviceName} numberOfLines={1}>{s.name}</Text>
+            <Text style={styles.serviceNumber}>{s.number}</Text>
+          </Pressable>
         ))}
       </View>
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', paddingTop: 48, backgroundColor: '#fff', paddingHorizontal: 24 },
-  title: { fontSize: 24, fontWeight: '800', color: colors.primary },
-  banner: { backgroundColor: colors.warningLight, padding: 12, borderRadius: 10, marginTop: 20, width: '100%' },
-  bannerText: { fontSize: 12, color: '#856404', textAlign: 'center' },
-  sosBtn: {
-    width: 220, height: 220, borderRadius: 110, backgroundColor: colors.danger,
-    alignItems: 'center', justifyContent: 'center', marginTop: 32,
-    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 12, shadowOffset: { width: 0, height: 6 },
+  overline: { ...type.overline, color: colors.danger, textAlign: 'center' },
+  title: { ...type.title, fontSize: 28, textAlign: 'center', marginTop: 4 },
+  subtitle: { ...type.body, color: colors.textMuted, textAlign: 'center', marginTop: spacing.sm, paddingHorizontal: spacing.lg },
+
+  btnArea: { height: BTN * 1.6, alignItems: 'center', justifyContent: 'center' },
+  ring: { position: 'absolute', width: BTN, height: BTN, borderRadius: BTN / 2 },
+  sosOuter: { width: BTN, height: BTN, borderRadius: BTN / 2, backgroundColor: '#FCA5A5', padding: 10 },
+  sosInner: {
+    flex: 1, borderRadius: BTN / 2,
+    backgroundColor: colors.danger,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 3, borderColor: 'rgba(255,255,255,0.25)',
   },
-  sosIcon: { fontSize: 60 },
-  sosText: { fontSize: 40, fontWeight: '900', color: '#fff' },
-  hint: { marginTop: 20, color: colors.textMuted },
-  notifyLabel: { marginTop: 32, color: colors.textMuted },
-  services: { flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap', justifyContent: 'center' },
-  service: { backgroundColor: '#F5F5F5', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
+  sosText: { fontSize: 48, fontWeight: '900', color: '#fff', letterSpacing: 2 },
+  countText: { fontSize: 64, fontWeight: '900', color: '#fff' },
+  sosHint: { fontSize: 13, color: '#FEE2E2', marginTop: 2, fontWeight: '600' },
+  sosSending: { color: '#fff', marginTop: 8, fontWeight: '700' },
+
+  banner: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.warningLight,
+    borderWidth: 1, borderColor: '#FBE3B3',
+    padding: spacing.md, borderRadius: radius.md,
+  },
+  bannerText: { flex: 1, fontSize: 12, color: colors.warningDark, lineHeight: 17, marginLeft: spacing.sm },
+
+  notifyLabel: { ...type.overline, textAlign: 'center', marginTop: spacing.xl, marginBottom: spacing.md },
+  services: { flexDirection: 'row', gap: spacing.sm },
+  service: {
+    flex: 1, alignItems: 'center',
+    backgroundColor: colors.surface,
+    paddingVertical: spacing.md, paddingHorizontal: 4, borderRadius: radius.md,
+  },
+  serviceIcon: {
+    width: 38, height: 38, borderRadius: 19, backgroundColor: colors.dangerLight,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  serviceName: { fontSize: 13, fontWeight: '700', color: colors.text, marginTop: 6 },
+  serviceNumber: { ...type.caption, fontSize: 11 },
+
+  sentIcon: {
+    alignSelf: 'center', width: 96, height: 96, borderRadius: 48,
+    backgroundColor: colors.success, alignItems: 'center', justifyContent: 'center',
+    marginTop: spacing.xl,
+  },
+  sentCard: { marginTop: spacing.xl, backgroundColor: colors.surface, borderRadius: radius.lg, padding: spacing.lg },
+  notifyLabelLeft: { ...type.overline, marginBottom: spacing.sm },
+  notifiedRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
+  noContacts: { ...type.caption, lineHeight: 17 },
+  contactRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
+  contactPhone: { ...type.caption, marginLeft: spacing.sm, marginTop: 1 },
+  msgBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 6,
+    paddingHorizontal: 10, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.primaryLight,
+  },
+  waBtn: { backgroundColor: '#E7F7EF' },
+  msgText: { fontSize: 12, fontWeight: '700', color: colors.primary },
+  notifiedText: { marginLeft: spacing.sm, fontSize: 15, fontWeight: '600', color: colors.text },
 });

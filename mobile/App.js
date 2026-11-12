@@ -1,7 +1,12 @@
-﻿import React from 'react';
+import React from 'react';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { ToastProvider } from './src/components/Toast';
+import { LanguageProvider } from './src/i18n/LanguageContext';
+import { NotificationsProvider } from './src/context/NotificationsContext';
+import Icon from './src/components/Icon';
 import RootNavigator from './src/navigation/RootNavigator';
 import { colors } from './src/theme/colors';
 
@@ -11,7 +16,9 @@ function AppInner() {
   if (loading) {
     return (
       <View style={styles.loading}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <View style={styles.logo}><Icon name="shield-checkmark" size={38} color="#fff" /></View>
+        <Text style={styles.brand}>CommuteSafe SA</Text>
+        <ActivityIndicator size="small" color="#fff" style={{ marginTop: 24 }} />
       </View>
     );
   }
@@ -26,9 +33,17 @@ function AppInner() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppInner />
-    </AuthProvider>
+    <SafeAreaProvider>
+      <LanguageProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <NotificationsProvider>
+              <AppInner />
+            </NotificationsProvider>
+          </AuthProvider>
+        </ToastProvider>
+      </LanguageProvider>
+    </SafeAreaProvider>
   );
 }
 
@@ -37,6 +52,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: colors.primary,
   },
+  logo: {
+    width: 72, height: 72, borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  brand: { color: '#fff', fontSize: 22, fontWeight: '800', marginTop: 16, letterSpacing: -0.3 },
 });

@@ -1,7 +1,27 @@
-﻿import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import api from '../api/client';
-import { colors, riskColors } from '../theme/colors';
+import RiskBadge from '../components/RiskBadge';
+import Card from '../components/Card';
+import Screen from '../components/Screen';
+import Icon from '../components/Icon';
+import MapPreview from '../components/MapPreview';
+import { colors, radius, riskColors, spacing, type } from '../theme/colors';
+
+// Approximate coordinates for the demo route
+const STOPS = [
+  { name: 'Cape Town CBD', pos: '8%', risk: 'Low', latitude: -33.9249, longitude: 18.4241 },
+  { name: 'Woodstock', pos: '36%', risk: 'Medium', latitude: -33.9284, longitude: 18.4466 },
+  { name: 'Parow', pos: '64%', risk: 'Medium', latitude: -33.9000, longitude: 18.5980 },
+  { name: 'Bellville', pos: '92%', risk: 'High', latitude: -33.9035, longitude: 18.6290 },
+];
+
+const TIMES = [
+  { label: '06–08', risk: 'Low' },
+  { label: '08–17', risk: 'Low' },
+  { label: '17–19', risk: 'High' },
+  { label: '19+', risk: 'Medium' },
+];
 
 export default function RouteRiskScreen() {
   const [risk, setRisk] = useState('Unknown');
@@ -22,10 +42,8 @@ export default function RouteRiskScreen() {
       const time_window = Math.floor(hour / 2) * 2;
       const dow = now.getDay() === 0 ? 6 : now.getDay() - 1; // Mon=0..Sun=6
 
-      // Features derived from historical data for this route (approx)
+      // Incident numbers now come from real reports on the server (last 7 days)
       const params = new URLSearchParams({
-        incident_count: 3,
-        avg_severity: 2.0,
         time_window: String(time_window),
         dow: String(dow),
       });
@@ -44,102 +62,176 @@ export default function RouteRiskScreen() {
   const c = riskColors[risk] || riskColors.Unknown;
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Route risk</Text>
-      <Text style={styles.subtitle}>Cape Town CBD → Bellville</Text>
-
-      <View style={[styles.map, { borderColor: c.hex }]}>
-        <View style={styles.mapLine} />
-        <View style={[styles.dot, { left: '10%', backgroundColor: colors.success }]} />
-        <View style={[styles.dot, { left: '45%', backgroundColor: colors.warning }]} />
-        <View style={[styles.dot, { left: '80%', backgroundColor: colors.danger }]} />
-        <Text style={styles.peak}>Peak time: 17:00–19:00</Text>
+    <Screen tabbed={false}>
+      {/* Hero continues the violet header */}
+      <View style={styles.hero}>
+        <Text style={styles.heroOverline}>YOUR ROUTE</Text>
+        <Text style={styles.heroTitle}>Cape Town CBD → Bellville</Text>
       </View>
 
-      {loading ? (
-        <View style={styles.loadingBox}>
-          <ActivityIndicator color={colors.primary} />
-          <Text style={styles.loadingText}>Loading prediction…</Text>
-        </View>
-      ) : (
-        <View style={[styles.summary, { backgroundColor: c.bg }]}>
-          <Text style={[styles.summaryTitle, { color: c.text }]}>
-            Current route — {risk} risk
-          </Text>
-          <Text style={styles.summarySub}>
-            {features
-              ? `Based on ${features.incident_count} incidents in the last 7 days`
-              : 'Predictive risk estimate'}
-          </Text>
-          {source && (
-            <Text style={styles.source}>
-              Prediction source: {source === 'ml-service' ? 'AI model' : 'rule-based fallback'}
-            </Text>
+      <View style={styles.body}>
+        {/* Prediction */}
+        <Card style={styles.predictCard}>
+          {loading ? (
+            <View style={styles.loadingBox}>
+              <ActivityIndicator color={colors.primary} />
+              <Text style={styles.loadingText}>Calculating risk…</Text>
+            </View>
+          ) : (
+            <View style={styles.predictRow}>
+              <View style={[styles.gauge, { borderColor: c.hex, backgroundColor: c.bg }]}>
+                <Text style={[styles.gaugeText, { color: c.text }]}>{risk}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={type.overline}>Current risk</Text>
+                <Text style={styles.predictTitle}>{risk} risk right now</Text>
+                <Text style={styles.predictSub}>
+                  {features
+                    ? `Based on ${features.incident_count} reported incident${features.incident_count === 1 ? '' : 's'} in the last 7 days (avg severity ${features.avg_severity})`
+                    : 'Predictive risk estimate'}
+                </Text>
+                {source && (
+                  <View style={styles.sourcePill}>
+                    <Icon name={source === 'ml-service' ? 'sparkles' : 'options-outline'} size={12} color={colors.primary} />
+                    <Text style={styles.sourceText}>
+                      {source === 'ml-service' ? 'AI model' : 'Rule-based fallback'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
           )}
-        </View>
-      )}
+        </Card>
 
-      <Text style={styles.sectionTitle}>RISK BY TIME OF DAY</Text>
-      <View style={styles.timeRow}>
-        {[
-          { label: '06:00–08:00', risk: 'Low' },
-          { label: '08:00–17:00', risk: 'Low' },
-          { label: '17:00–19:00', risk: 'High' },
-          { label: '19:00+', risk: 'Medium' },
-        ].map(t => (
-          <View
-            key={t.label}
-            style={[styles.timeChip, { backgroundColor: riskColors[t.risk].bg }]}
-          >
-            <Text style={styles.timeLabel}>{t.label}</Text>
-            <Text style={[styles.timeRisk, { color: riskColors[t.risk].text }]}>
-              {t.risk}
-            </Text>
+        {/* Route strip */}
+        <Text style={styles.sectionTitle}>Along the route</Text>
+        <MapPreview
+          height={190}
+          route={STOPS.map(s => ({ latitude: s.latitude, longitude: s.longitude }))}
+          markers={STOPS.map(s => ({
+            id: s.name, latitude: s.latitude, longitude: s.longitude,
+            title: s.name, description: `${s.risk} risk`, color: riskColors[s.risk].hex,
+          }))}
+          style={{ marginBottom: spacing.md }}
+        />
+        <Card>
+          <View style={styles.track}>
+            <View style={styles.trackLine} />
+            {STOPS.map(s => (
+              <View
+                key={s.name}
+                style={[styles.trackDot, { left: s.pos, backgroundColor: riskColors[s.risk].hex }]}
+              />
+            ))}
           </View>
-        ))}
+          <View style={styles.stopRow}>
+            {STOPS.map(s => (
+              <View key={s.name} style={styles.stopLabel}>
+                <Text style={styles.stopName} numberOfLines={2}>{s.name}</Text>
+              </View>
+            ))}
+          </View>
+          <View style={styles.peak}>
+            <Icon name="time-outline" size={14} color={colors.dangerDark} />
+            <Text style={styles.peakText}>Peak risk: 17:00 – 19:00</Text>
+          </View>
+        </Card>
+
+        {/* Time of day */}
+        <Text style={styles.sectionTitle}>Risk by time of day</Text>
+        <View style={styles.timeRow}>
+          {TIMES.map(t => {
+            const tc = riskColors[t.risk];
+            return (
+              <View key={t.label} style={[styles.timeCol, { backgroundColor: colors.surface }]}>
+                <View style={styles.barTrack}>
+                  <View
+                    style={[
+                      styles.bar,
+                      {
+                        backgroundColor: tc.hex,
+                        height: t.risk === 'High' ? '100%' : t.risk === 'Medium' ? '62%' : '30%',
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.timeLabel}>{t.label}</Text>
+                <Text style={[styles.timeRisk, { color: tc.text }]}>{t.risk}</Text>
+              </View>
+            );
+          })}
+        </View>
+
+        <View style={styles.legend}>
+          {['Low', 'Medium', 'High'].map(r => <RiskBadge key={r} risk={r} />)}
+        </View>
       </View>
-    </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24, paddingTop: 32, backgroundColor: '#fff', minHeight: '100vh' },
-  title: { fontSize: 24, fontWeight: '800', color: colors.primary },
-  subtitle: { color: colors.textMuted, marginTop: 4, marginBottom: 20 },
-  map: {
-    height: 180,
-    backgroundColor: '#F2F2F7',
-    borderRadius: 16,
-    borderWidth: 2,
-    marginBottom: 20,
-    justifyContent: 'center',
+  hero: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.sm,
+    paddingBottom: 56,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
   },
-  mapLine: {
-    position: 'absolute',
-    top: '45%',
-    left: '10%',
-    right: '10%',
-    height: 4,
-    backgroundColor: '#DDD',
-    borderRadius: 2,
+  heroOverline: { ...type.overline, color: colors.textOnPrimaryMuted },
+  heroTitle: { ...type.title, color: '#fff', fontSize: 22, marginTop: 4 },
+
+  body: { paddingHorizontal: spacing.lg, marginTop: -40 },
+  predictCard: { padding: spacing.lg + 2 },
+  predictRow: { flexDirection: 'row', alignItems: 'center' },
+  gauge: {
+    width: 84, height: 84, borderRadius: 42, borderWidth: 6,
+    alignItems: 'center', justifyContent: 'center', marginRight: spacing.lg,
   },
-  dot: { position: 'absolute', top: '42%', width: 16, height: 16, borderRadius: 8 },
-  peak: { position: 'absolute', top: 12, right: 12, fontSize: 12, color: colors.textMuted },
-  loadingBox: { padding: 20, alignItems: 'center' },
-  loadingText: { marginTop: 8, color: colors.textMuted, fontSize: 13 },
-  summary: { padding: 16, borderRadius: 12, marginBottom: 20 },
-  summaryTitle: { fontWeight: '800', fontSize: 15 },
-  summarySub: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
-  source: { fontSize: 11, color: colors.textMuted, marginTop: 6, fontStyle: 'italic' },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1,
-    color: colors.textMuted,
-    marginBottom: 8,
+  gaugeText: { fontSize: 15, fontWeight: '800' },
+  predictTitle: { ...type.heading, marginTop: 2 },
+  predictSub: { ...type.caption, marginTop: 4, lineHeight: 16 },
+  sourcePill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    alignSelf: 'flex-start', marginTop: spacing.sm,
+    paddingHorizontal: 8, paddingVertical: 3,
+    backgroundColor: colors.primaryLight, borderRadius: radius.pill,
   },
-  timeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  timeChip: { flex: 1, minWidth: 100, padding: 10, borderRadius: 10, alignItems: 'center' },
-  timeLabel: { fontSize: 11, color: colors.textMuted },
-  timeRisk: { fontSize: 13, fontWeight: '800', marginTop: 2 },
+  sourceText: { fontSize: 11, fontWeight: '600', color: colors.primary },
+  loadingBox: { paddingVertical: spacing.lg, alignItems: 'center' },
+  loadingText: { ...type.caption, marginTop: spacing.sm },
+
+  sectionTitle: { ...type.heading, marginTop: spacing.xl, marginBottom: spacing.md },
+
+  track: { height: 24, justifyContent: 'center', marginHorizontal: 4 },
+  trackLine: {
+    position: 'absolute', left: '8%', right: '8%', height: 4,
+    backgroundColor: colors.border, borderRadius: 2,
+  },
+  trackDot: {
+    position: 'absolute', width: 18, height: 18, borderRadius: 9, marginLeft: -9,
+    borderWidth: 3, borderColor: '#fff',
+  },
+  stopRow: { flexDirection: 'row', marginTop: spacing.sm },
+  stopLabel: { flex: 1, alignItems: 'center', paddingHorizontal: 2 },
+  stopName: { fontSize: 11, fontWeight: '600', color: colors.textSecondary, textAlign: 'center' },
+  peak: {
+    marginTop: spacing.lg, padding: spacing.sm + 2, borderRadius: radius.sm,
+    backgroundColor: colors.dangerLight,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+  },
+  peakText: { fontSize: 12, fontWeight: '700', color: colors.dangerDark, marginLeft: 6 },
+
+  timeRow: { flexDirection: 'row', gap: spacing.sm },
+  timeCol: { flex: 1, alignItems: 'center', padding: spacing.md, borderRadius: radius.md },
+  barTrack: {
+    width: 14, height: 64, borderRadius: 7, backgroundColor: colors.background,
+    justifyContent: 'flex-end', overflow: 'hidden',
+  },
+  bar: { width: '100%', borderRadius: 7 },
+  timeLabel: { ...type.caption, fontSize: 11, marginTop: spacing.sm },
+  timeRisk: { fontSize: 13, fontWeight: '800', marginTop: 1 },
+
+  legend: { flexDirection: 'row', gap: spacing.sm, justifyContent: 'center', marginTop: spacing.xl },
 });

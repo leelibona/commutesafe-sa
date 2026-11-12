@@ -1,36 +1,50 @@
-﻿import React from 'react';
-import { TouchableOpacity, Text, StyleSheet } from 'react-native';
-import { colors } from '../theme/colors';
+import React from 'react';
+import { Pressable, View, Text, StyleSheet } from 'react-native';
+import Icon from './Icon';
+import { colors, radius, shadows, spacing } from '../theme/colors';
 
-export default function ActionCard({ icon, label, onPress, highlighted }) {
+export default function ActionCard({ icon, label, sub, onPress, highlighted }) {
   return (
-    <TouchableOpacity
-      style={[styles.card, highlighted && styles.highlighted]}
+    <Pressable
       onPress={onPress}
-      activeOpacity={0.7}
+      accessibilityRole="button"
+      style={({ pressed }) => [
+        styles.card,
+        shadows.md,
+        highlighted && styles.highlighted,
+        pressed && styles.pressed,
+      ]}
     >
-      <Text style={styles.icon}>{icon}</Text>
-      <Text style={styles.label}>{label}</Text>
-    </TouchableOpacity>
+      <View style={[styles.iconTile, highlighted && styles.iconTileDanger]}>
+        <Icon name={icon} size={24} color={highlighted ? '#fff' : colors.primary} />
+      </View>
+      <Text style={[styles.label, highlighted && { color: colors.dangerDark }]}>{label}</Text>
+      {sub ? <Text style={styles.sub}>{sub}</Text> : null}
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
-    width: '47%',
+    width: '48%',
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  highlighted: { backgroundColor: '#FFF7F7', borderColor: '#FBD5D5' },
+  pressed: { transform: [{ scale: 0.97 }], opacity: 0.92 },
+  iconTile: {
+    width: 46,
+    height: 46,
+    borderRadius: radius.md,
     backgroundColor: colors.primaryLight,
-    padding: 20,
-    borderRadius: 12,
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
   },
-  highlighted: { backgroundColor: colors.dangerLight },
-  icon: { fontSize: 32 },
-  label: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.primaryDark,
-    marginTop: 8,
-    textAlign: 'center',
-  },
+  iconTileDanger: { backgroundColor: colors.danger },
+  label: { fontSize: 15, fontWeight: '700', color: colors.text, marginTop: spacing.md },
+  sub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
 });

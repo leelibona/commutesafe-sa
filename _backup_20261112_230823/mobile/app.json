@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "CommuteSafe SA",
+    "slug": "mobile",
+    "description": "Report incidents, check vehicles and send SOS alerts on your daily commute.",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "primaryColor": "#5B2EBC",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#5B2EBC"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "CommuteSafe SA uses your location to attach it to incident reports and SOS alerts."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#5B2EBC",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": ["ACCESS_COARSE_LOCATION", "ACCESS_FINE_LOCATION"]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "name": "CommuteSafe SA",
+      "shortName": "CommuteSafe",
+      "themeColor": "#5B2EBC",
+      "backgroundColor": "#F6F5FA"
+    }
+  }
+}

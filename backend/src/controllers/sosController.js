@@ -1,5 +1,6 @@
-﻿const pool = require('../config/db');
+const pool = require('../config/db');
 const uuid = require('../utils/uuid');
+const Contact = require('../models/Contact');
 
 exports.trigger = async (req, res, next) => {
   try {
@@ -12,9 +13,14 @@ exports.trigger = async (req, res, next) => {
       [alert_id, req.user.user_id, latitude || null, longitude || null]
     );
 
+    // The app uses these to send SMS / WhatsApp messages to the user's contacts
+    let contacts = [];
+    try { contacts = await Contact.forUser(req.user.user_id); } catch { /* table may not exist yet */ }
+
     res.status(201).json({
       alert_id,
       notified: ['SAPS 10111', 'Netcare 911', 'ER24'],
+      contacts,
       message: 'SOS alert sent with live location',
       created_at: new Date(),
     });
